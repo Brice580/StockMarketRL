@@ -2,14 +2,18 @@
 
 from env.trading_env import create_trading_env
 from models.dqn_agent import DQNAgent
+from models.dqn_agent_finetuned import DQNAgentFinetuned
 import matplotlib.pyplot as plt
 
+USE_TECHNICAL_INDICATORS = True 
+
 def main():
-    env = create_trading_env("data/AAPL.csv")
+    env = create_trading_env("data/AAPL.csv", use_indicators=USE_TECHNICAL_INDICATORS)
+
 
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n
-    agent = DQNAgent(state_dim, action_dim)
+    agent = DQNAgent(state_dim, action_dim) #change this to DQNAgentFinetuned for finetuned model
 
     num_episodes = 100
     net_worths = []
