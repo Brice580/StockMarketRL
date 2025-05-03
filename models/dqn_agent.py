@@ -2,6 +2,7 @@ import torch
 import torch.optim as optim
 import numpy as np
 from models.q_network import QNetwork
+from models.q_network_2 import QNetwork as QNetwork2
 from models.replay_buffer import ReplayBuffer
 
 class DQNAgent:
