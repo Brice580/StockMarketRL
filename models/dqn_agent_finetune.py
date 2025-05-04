@@ -5,7 +5,7 @@ import numpy as np
 from models.q_network import QNetwork
 from models.replay_buffer import ReplayBuffer
 
-class DQNAgent:
+class DQNAgentFinetuned:
     def __init__(self, state_dim, action_dim, gamma=0.90, lr=5e-4, batch_size=128):
         self.q_net = QNetwork(state_dim, action_dim)
         self.target_net = QNetwork(state_dim, action_dim)
