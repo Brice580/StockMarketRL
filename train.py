@@ -17,7 +17,7 @@ def main():
         "data/JPM.csv", "data/JNJ.csv", "data/BRK-B.csv",
     ]
 
-    num_episodes = 5
+    num_episodes = 3
     
     performance_metrics = {
         'episode_rewards': [],
@@ -82,16 +82,20 @@ def main():
         print(f"  Steps = {step_count}")
         print("-" * 50)
 
-    plt.style.use('bmh')  
+    # Visualization Section
+    plt.style.use('default')  # Reset to default style
     fig = plt.figure(figsize=(20, 12))
+    colors = ['#2ecc71', '#3498db', '#e74c3c', '#f1c40f', '#9b59b6', '#1abc9c']
 
     # 1. Portfolio Value Over Time
     ax1 = plt.subplot(2, 3, 1)
-    ax1.plot(performance_metrics['portfolio_values'], label='Portfolio Value', color='blue')
-    ax1.set_title('Portfolio Value Progression')
-    ax1.set_xlabel('Episode')
-    ax1.set_ylabel('Portfolio Value ($)')
-    ax1.grid(True)
+    ax1.plot(performance_metrics['portfolio_values'], color=colors[0], linewidth=2)
+    ax1.set_title('Portfolio Value Progression', fontsize=12, pad=15)
+    ax1.set_xlabel('Episode', fontsize=10)
+    ax1.set_ylabel('Portfolio Value ($)', fontsize=10)
+    ax1.grid(True, linestyle='--', alpha=0.7)
+    ax1.spines['top'].set_visible(False)
+    ax1.spines['right'].set_visible(False)
 
     # 2. Rewards Distribution by Stock
     ax2 = plt.subplot(2, 3, 2)
@@ -101,67 +105,89 @@ def main():
     means = list(stock_means.values())
     stds = list(stock_stds.values())
     x_pos = np.arange(len(stocks))
-    ax2.bar(x_pos, means, yerr=stds, capsize=5)
+    bars = ax2.bar(x_pos, means, yerr=stds, capsize=5, color=colors[1], alpha=0.7)
     ax2.set_xticks(x_pos)
     ax2.set_xticklabels(stocks, rotation=45, ha='right')
-    ax2.set_title('Average Reward by Stock')
-    ax2.set_ylabel('Mean Reward')
-    
-    # Adjust layout to prevent label cutoff
-    plt.tight_layout()
+    ax2.set_title('Average Reward by Stock', fontsize=12, pad=15)
+    ax2.set_ylabel('Mean Reward', fontsize=10)
+    ax2.spines['top'].set_visible(False)
+    ax2.spines['right'].set_visible(False)
+    ax2.grid(True, linestyle='--', alpha=0.3, axis='y')
 
     # 3. Action Distribution
     ax3 = plt.subplot(2, 3, 3)
     actions = list(performance_metrics['actions_taken'].keys())
     counts = list(performance_metrics['actions_taken'].values())
-    ax3.pie(counts, labels=['Short', 'Hold', 'Long'], autopct='%1.1f%%')
-    ax3.set_title('Action Distribution')
+    wedges, texts, autotexts = ax3.pie(counts, labels=['Short', 'Hold', 'Long'], 
+                                      autopct='%1.1f%%', colors=colors[3:6],
+                                      textprops={'fontsize': 10})
+    ax3.set_title('Action Distribution', fontsize=12, pad=15)
+    plt.setp(autotexts, size=9, weight="bold")
 
     # 4. Returns Distribution
     ax4 = plt.subplot(2, 3, 4)
     all_returns = [ret for returns in performance_metrics['returns_by_stock'].values() for ret in returns]
-    ax4.hist(all_returns, bins=30, edgecolor='black')
-    ax4.axvline(np.mean(all_returns), color='r', linestyle='dashed', linewidth=2, label=f'Mean: {np.mean(all_returns):.2f}%')
-    ax4.set_title('Returns Distribution')
-    ax4.set_xlabel('Return (%)')
-    ax4.set_ylabel('Frequency')
-    ax4.legend()
+    if len(all_returns) > 0:  # Only plot if we have data
+        ax4.hist(all_returns, bins=min(15, len(all_returns)), color=colors[2], alpha=0.7, edgecolor='white')
+        mean_return = np.mean(all_returns)
+        ax4.axvline(mean_return, color=colors[0], linestyle='dashed', linewidth=2, 
+                    label=f'Mean: {mean_return:.2f}%')
+        ax4.set_title('Returns Distribution', fontsize=12, pad=15)
+        ax4.set_xlabel('Return (%)', fontsize=10)
+        ax4.set_ylabel('Frequency', fontsize=10)
+        ax4.legend(fontsize=9)
+        ax4.spines['top'].set_visible(False)
+        ax4.spines['right'].set_visible(False)
+        ax4.grid(True, linestyle='--', alpha=0.3)
 
     # 5. Episode Length Distribution
     ax5 = plt.subplot(2, 3, 5)
-    ax5.hist(performance_metrics['episode_lengths'], bins=20, edgecolor='black')
-    ax5.set_title('Episode Length Distribution')
-    ax5.set_xlabel('Number of Steps')
-    ax5.set_ylabel('Frequency')
+    if len(performance_metrics['episode_lengths']) > 0:  # Only plot if we have data
+        ax5.hist(performance_metrics['episode_lengths'], 
+                bins=min(10, len(performance_metrics['episode_lengths'])), 
+                color=colors[4], alpha=0.7, edgecolor='white')
+        ax5.set_title('Episode Length Distribution', fontsize=12, pad=15)
+        ax5.set_xlabel('Number of Steps', fontsize=10)
+        ax5.set_ylabel('Frequency', fontsize=10)
+        ax5.spines['top'].set_visible(False)
+        ax5.spines['right'].set_visible(False)
+        ax5.grid(True, linestyle='--', alpha=0.3)
 
-    # 6. Learning Progress (Moving Average of Returns)
+    # 6. Learning Progress
     ax6 = plt.subplot(2, 3, 6)
-    window_size = 5
     returns = [ret for returns in performance_metrics['returns_by_stock'].values() for ret in returns]
-    moving_avg = pd.Series(returns).rolling(window=window_size).mean()
-    ax6.plot(moving_avg, label=f'{window_size}-Episode Moving Average')
-    ax6.set_title('Learning Progress')
-    ax6.set_xlabel('Episode')
-    ax6.set_ylabel('Average Return (%)')
-    ax6.legend()
+    if len(returns) > 1:  # Need at least 2 points for a line
+        window_size = min(2, len(returns))  # Adjust window size based on data length
+        moving_avg = pd.Series(returns).rolling(window=window_size, min_periods=1).mean()
+        ax6.plot(moving_avg, color=colors[5], linewidth=2, 
+                 label=f'{window_size}-Episode Moving Average')
+        ax6.set_title('Learning Progress', fontsize=12, pad=15)
+        ax6.set_xlabel('Episode', fontsize=10)
+        ax6.set_ylabel('Average Return (%)', fontsize=10)
+        ax6.legend(fontsize=9)
+        ax6.spines['top'].set_visible(False)
+        ax6.spines['right'].set_visible(False)
+        ax6.grid(True, linestyle='--', alpha=0.3)
 
-    plt.tight_layout()
+    plt.tight_layout(pad=2.0)
     plt.show()
 
-    # Additional Statistics
-    print("\nTraining Summary:")
+    # Print statistics with better formatting
+    print("\n" + "="*50)
+    print("Training Summary".center(50))
+    print("="*50)
     print(f"Total Episodes: {num_episodes}")
     print(f"Average Return: {np.mean(all_returns):.2f}%")
     print(f"Best Return: {np.max(all_returns):.2f}%")
     print(f"Worst Return: {np.min(all_returns):.2f}%")
     print(f"Average Episode Length: {np.mean(performance_metrics['episode_lengths']):.1f} steps")
     
-    # Best and Worst Performing Stocks
+    print("\nStock Performance:")
+    print("-"*50)
     stock_avg_returns = {k: np.mean(v) for k, v in performance_metrics['returns_by_stock'].items()}
-    best_stock = max(stock_avg_returns.items(), key=lambda x: x[1])
-    worst_stock = min(stock_avg_returns.items(), key=lambda x: x[1])
-    print(f"\nBest Performing Stock: {best_stock[0]} ({best_stock[1]:.2f}%)")
-    print(f"Worst Performing Stock: {worst_stock[0]} ({worst_stock[1]:.2f}%)")
+    sorted_stocks = sorted(stock_avg_returns.items(), key=lambda x: x[1], reverse=True)
+    for stock, avg_return in sorted_stocks:
+        print(f"{stock:8} : {avg_return:+.2f}%")
 
 if __name__ == "__main__":
     main()
