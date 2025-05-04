@@ -1,3 +1,9 @@
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+# Import our fix for pandas_ta
+import fix_pandas_ta
+
 from env.trading_env import create_trading_env
 from models.dqn_agent import DQNAgent
 from models.dqn_agent_finetune import DQNAgentFinetuned
@@ -5,19 +11,30 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
+import torch
 from collections import defaultdict
+
+print("hi")
 
 USE_TECHNICAL_INDICATORS = True 
 
+# Define action meanings
+ACTION_MEANINGS = {
+    0: "Short",       # -1: short position
+    1: "Hold",        # 0: hold/no position
+    2: "Long",        # 1: long position
+    3: "Buy more",    # 2: increase position size (scale-in)
+    4: "Sell all",    # 3: fully exit position
+    5: "Do nothing",  # 4: explicit idle step
+    6: "Buy 2x size"  # 5: aggressive entry (double size)
+}
+
 def main():
     stock_files = [
-        "data/AAPL.csv", "data/MSFT.csv", "data/GOOGL.csv", "data/NVDA.csv",
-        "data/AMZN.csv", "data/UNH.csv", "data/XOM.csv", "data/V.csv",
-        "data/PG.csv", "data/META.csv", "data/MA.csv", "data/LLY.csv",
-        "data/JPM.csv", "data/JNJ.csv", "data/BRK-B.csv",
+        "data/AAPL.csv",
     ]
 
-    num_episodes = 3
+    num_episodes = 10
     
     performance_metrics = {
         'episode_rewards': [],
@@ -118,8 +135,12 @@ def main():
     ax3 = plt.subplot(2, 3, 3)
     actions = list(performance_metrics['actions_taken'].keys())
     counts = list(performance_metrics['actions_taken'].values())
-    wedges, texts, autotexts = ax3.pie(counts, labels=['Short', 'Hold', 'Long'], 
-                                      autopct='%1.1f%%', colors=colors[3:6],
+    
+    # Create labels using the action meanings
+    action_labels = [ACTION_MEANINGS.get(action, f"Action {action}") for action in actions]
+    
+    wedges, texts, autotexts = ax3.pie(counts, labels=action_labels, 
+                                      autopct='%1.1f%%', colors=colors[3:3+len(actions)],
                                       textprops={'fontsize': 10})
     ax3.set_title('Action Distribution', fontsize=12, pad=15)
     plt.setp(autotexts, size=9, weight="bold")
@@ -188,6 +209,13 @@ def main():
     sorted_stocks = sorted(stock_avg_returns.items(), key=lambda x: x[1], reverse=True)
     for stock, avg_return in sorted_stocks:
         print(f"{stock:8} : {avg_return:+.2f}%")
+    
+    # Save the trained model
+    if agent is not None:
+        os.makedirs('saved_models', exist_ok=True)
+        model_path = os.path.join('saved_models', f'dqn_agent_ep{num_episodes}.pt')
+        agent.save_model(model_path)
+        print(f"\nModel saved to: {model_path}")
 
 if __name__ == "__main__":
     main()

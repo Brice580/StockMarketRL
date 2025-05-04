@@ -1,3 +1,10 @@
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+# Force disable the deprecated warnings that happen when importing pandas_ta
+import logging
+logging.getLogger('pkg_resources').setLevel(logging.ERROR)
+
 from gym_trading_env.environments import TradingEnv
 import pandas as pd
 import pandas_ta as ta
@@ -55,7 +62,7 @@ def create_trading_env(csv_path, use_indicators=True):
 
     return TradingEnv(
         df=df,
-        positions=[-1, 0, 1],  # short, hold, long
+        positions=[-1, 0, 1, 2, 3, 4, 5],  # -1: short, 0: hold, 1: long, 2: buy more, 3: sell all, 4: do nothing, 5: buy 2x
         trading_fees=0.001,    # 0.1% trading fee
         borrow_interest_rate=0.0001  # 0.01% borrow interest rate
     )
