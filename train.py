@@ -6,12 +6,16 @@ import fix_pandas_ta
 
 from env.trading_env import create_trading_env
 from models.dqn_agent import DQNAgent
+from models.dueling_dqn_agent import DuelingDQNAgent
 from models.dqn_agent_finetune import DQNAgentFinetuned
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
 import torch
+import argparse
+import time
+from datetime import timedelta
 from collections import defaultdict
 
 print("hi")
@@ -29,12 +33,15 @@ ACTION_MEANINGS = {
     6: "Buy 2x size"  # 5: aggressive entry (double size)
 }
 
-def main():
+def main(args):
     stock_files = [
-        "data/AAPL.csv",
+        "data/AAPL.csv", "data/MSFT.csv", "data/GOOGL.csv", "data/NVDA.csv",
+        "data/AMZN.csv", "data/UNH.csv", "data/XOM.csv", "data/V.csv",
+        "data/PG.csv", "data/META.csv", "data/MA.csv", "data/LLY.csv",
+        "data/JPM.csv", "data/JNJ.csv", "data/BRK-B.csv",
     ]
 
-    num_episodes = 10
+    num_episodes = 300
     
     performance_metrics = {
         'episode_rewards': [],
@@ -47,8 +54,14 @@ def main():
     }
     
     agent = None
-
+    
+    # Track timing metrics
+    start_time = time.time()
+    episode_times = []
+    
     for episode in range(num_episodes):
+        episode_start_time = time.time()
+        
         stock_path = np.random.choice(stock_files)
         stock_name = os.path.basename(stock_path).replace('.csv', '')
         performance_metrics['stock_sequence'].append(stock_name)
@@ -58,7 +71,14 @@ def main():
         if agent is None:
             state_dim = env.observation_space.shape[0]
             action_dim = env.action_space.n
-            agent = DQNAgent(state_dim, action_dim)
+            
+            # Select agent type based on arguments
+            if args.use_dueling_dqn:
+                print("Using Dueling DQN architecture")
+                agent = DuelingDQNAgent(state_dim, action_dim)
+            else:
+                print("Using standard DQN architecture")
+                agent = DQNAgent(state_dim, action_dim)
 
         state, info = env.reset()
         total_reward = 0
@@ -92,12 +112,29 @@ def main():
             performance_metrics['actions_taken'][action] += 1
 
         agent.update_target()
+        
+        # Calculate episode training time
+        episode_end_time = time.time()
+        episode_duration = episode_end_time - episode_start_time
+        episode_times.append(episode_duration)
+        
         print(f"Episode {episode+1}: Stock = {stock_name}")
         print(f"  Total Reward = {total_reward:.2f}")
         print(f"  Final Portfolio Value = ${final_value:.2f}")
         print(f"  Return = {episode_return:.2f}%")
         print(f"  Steps = {step_count}")
+        print(f"  Time = {timedelta(seconds=episode_duration)}")
+        
+        # Show estimated time remaining
+        if episode > 0:
+            avg_time_per_episode = sum(episode_times) / len(episode_times)
+            estimated_time_remaining = avg_time_per_episode * (num_episodes - episode - 1)
+            print(f"  Est. time remaining: {timedelta(seconds=estimated_time_remaining)}")
+        
         print("-" * 50)
+
+    # Calculate total training time
+    total_training_time = time.time() - start_time
 
     # Visualization Section
     plt.style.use('default')  # Reset to default style
@@ -203,6 +240,14 @@ def main():
     print(f"Worst Return: {np.min(all_returns):.2f}%")
     print(f"Average Episode Length: {np.mean(performance_metrics['episode_lengths']):.1f} steps")
     
+    # Print timing statistics
+    print("\nTraining Time Statistics:")
+    print("-"*50)
+    print(f"Total Training Time: {timedelta(seconds=total_training_time)}")
+    print(f"Average Time per Episode: {timedelta(seconds=np.mean(episode_times))}")
+    print(f"Fastest Episode: {timedelta(seconds=min(episode_times))}")
+    print(f"Slowest Episode: {timedelta(seconds=max(episode_times))}")
+    
     print("\nStock Performance:")
     print("-"*50)
     stock_avg_returns = {k: np.mean(v) for k, v in performance_metrics['returns_by_stock'].items()}
@@ -213,9 +258,14 @@ def main():
     # Save the trained model
     if agent is not None:
         os.makedirs('saved_models', exist_ok=True)
-        model_path = os.path.join('saved_models', f'dqn_agent_ep{num_episodes}.pt')
+        model_type = "dueling_dqn" if args.use_dueling_dqn else "dqn"
+        model_path = os.path.join('saved_models', f'{model_type}_agent_ep{num_episodes}.pt')
         agent.save_model(model_path)
         print(f"\nModel saved to: {model_path}")
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Train a DQN agent for stock trading")
+    parser.add_argument("--use_dueling_dqn", action="store_true", help="Use Dueling DQN architecture")
+    args = parser.parse_args()
+    
+    main(args)

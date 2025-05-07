@@ -6,10 +6,14 @@ import fix_pandas_ta
 
 from env.trading_env import create_trading_env
 from models.dqn_agent import DQNAgent
+from models.dueling_dqn_agent import DuelingDQNAgent
 import numpy as np
 import os
 import matplotlib.pyplot as plt
 import pandas as pd
+import argparse
+import time
+from datetime import timedelta
 
 # Define action meanings
 ACTION_MEANINGS = {
@@ -22,19 +26,24 @@ ACTION_MEANINGS = {
     6: "Buy 2x size"  # 5: aggressive entry (double size)
 }
 
-def test_agent(model_path, stock_file, episodes=1):
+def test_agent(model_path, stock_file, use_dueling_dqn=False, episodes=1):
     """
     Test a trained agent on a stock file and visualize the results
     
     Args:
         model_path: Path to the saved model
         stock_file: Path to the stock CSV file
+        use_dueling_dqn: Whether to use Dueling DQN architecture
         episodes: Number of episodes to run
     """
     # Track actions and performance
     actions_history = []
     portfolio_history = []
     price_history = []
+    
+    # Track timing metrics
+    inference_times = []
+    step_times = []
     
     # Create the environment
     env = create_trading_env(stock_file, use_indicators=True)
@@ -45,7 +54,14 @@ def test_agent(model_path, stock_file, episodes=1):
     # Create an agent with the appropriate dimensions
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n
-    agent = DQNAgent(state_dim, action_dim)
+    
+    # Create the appropriate agent type
+    if use_dueling_dqn:
+        print("Using Dueling DQN architecture")
+        agent = DuelingDQNAgent(state_dim, action_dim)
+    else:
+        print("Using standard DQN architecture")
+        agent = DQNAgent(state_dim, action_dim)
     
     # Load the saved model
     if not agent.load_model(model_path):
@@ -58,7 +74,13 @@ def test_agent(model_path, stock_file, episodes=1):
     agent.epsilon = 0.05
     
     for episode in range(episodes):
+        episode_start_time = time.time()
+        
         state, info = env.reset()
+        
+        # Print available info keys for debugging
+        print(f"Available info keys: {info.keys()}")
+        
         done = False
         truncated = False
         total_reward = 0
@@ -68,11 +90,30 @@ def test_agent(model_path, stock_file, episodes=1):
         # Reset history for each episode
         actions_history = []
         portfolio_history = [initial_value]
-        price_history = [info['last_price']]
+        
+        # Get the current price more safely - using data_price since we now know it exists
+        current_price = info.get('data_price', 0)
+        # Convert to float if it's a string
+        if isinstance(current_price, str):
+            try:
+                current_price = float(current_price)
+            except ValueError:
+                current_price = 0
+                
+        if current_price == 0:
+            print("Warning: Could not find price in info dict")
+            
+        price_history = [current_price]
         
         while not done and not truncated:
+            step_start_time = time.time()
+            
             # Select action
             action = agent.select_action(state)
+            
+            # Record action selection time
+            inference_time = time.time() - step_start_time
+            inference_times.append(inference_time)
             
             # Record the action
             actions_history.append(action)
@@ -82,7 +123,21 @@ def test_agent(model_path, stock_file, episodes=1):
             
             # Record portfolio value and price
             portfolio_history.append(info['portfolio_valuation'])
-            price_history.append(info['last_price'])
+            
+            # Get the current price from data_price
+            current_price = info.get('data_price', price_history[-1])
+            # Convert to float if it's a string
+            if isinstance(current_price, str):
+                try:
+                    current_price = float(current_price)
+                except ValueError:
+                    current_price = price_history[-1]
+                
+            price_history.append(current_price)
+            
+            # Record total step time (inference + environment step)
+            step_time = time.time() - step_start_time
+            step_times.append(step_time)
             
             # Update state and reward
             state = next_state
@@ -93,11 +148,20 @@ def test_agent(model_path, stock_file, episodes=1):
         final_value = info['portfolio_valuation']
         episode_return = ((final_value - initial_value) / initial_value) * 100
         
+        # Calculate episode duration
+        episode_duration = time.time() - episode_start_time
+        
         print(f"Episode {episode+1} Results:")
         print(f"  Initial Portfolio: ${initial_value:.2f}")
         print(f"  Final Portfolio: ${final_value:.2f}")
         print(f"  Return: {episode_return:.2f}%")
         print(f"  Total Steps: {step}")
+        print(f"  Episode Duration: {timedelta(seconds=episode_duration)}")
+        
+        # Print timing statistics
+        print("\nTiming Statistics:")
+        print(f"  Average Inference Time: {np.mean(inference_times)*1000:.2f} ms")
+        print(f"  Average Step Time: {np.mean(step_times)*1000:.2f} ms")
         
         # Count actions
         action_counts = {}
@@ -126,7 +190,15 @@ def test_agent(model_path, stock_file, episodes=1):
         
         # Plot 2: Stock Price and Actions
         plt.subplot(2, 1, 2)
-        plt.plot(price_history, label='Stock Price', color='blue')
+        
+        # Convert all price history values to float
+        price_history = [float(p) if isinstance(p, str) else p for p in price_history]
+        plt.plot(price_history, label='Stock Price', color='blue', alpha=0.7)
+        
+        # Normalize price and portfolio for comparison on same plot
+        if max(price_history) > 0:
+            normalized_portfolio = [p * (max(price_history)/max(portfolio_history)) for p in portfolio_history]
+            plt.plot(normalized_portfolio, label='Portfolio (scaled)', color='green', linestyle='--', alpha=0.5)
         
         # Add markers for different actions
         for i, action in enumerate(actions_history):
@@ -169,29 +241,55 @@ def test_agent(model_path, stock_file, episodes=1):
         plt.show()
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Test a trained DQN agent for stock trading")
+    parser.add_argument("--use_dueling_dqn", action="store_true", help="Use Dueling DQN architecture")
+    parser.add_argument("--model_path", type=str, help="Path to the model to test (if not specified, uses the latest model)")
+    parser.add_argument("--stock", type=str, help="Stock to test on (if not specified, randomly selects one)")
+    args = parser.parse_args()
+    
     # Check if saved models directory exists
     saved_models_dir = "saved_models"
     if not os.path.exists(saved_models_dir):
         print(f"No saved models found in {saved_models_dir}.")
         exit(1)
     
-    # Find the most recent model
-    model_files = [f for f in os.listdir(saved_models_dir) if f.endswith('.pt')]
-    if not model_files:
-        print("No model files found.")
-        exit(1)
+    # If model path is specified, use it; otherwise find the latest model
+    if args.model_path:
+        model_path = args.model_path
+        if not os.path.exists(model_path):
+            print(f"Model file {model_path} does not exist.")
+            exit(1)
+    else:
+        # Find model files by type
+        if args.use_dueling_dqn:
+            model_prefix = "dueling_dqn"
+        else:
+            model_prefix = "dqn"
+            
+        # Find all matching model files
+        model_files = [f for f in os.listdir(saved_models_dir) 
+                       if f.endswith('.pt') and f.startswith(model_prefix)]
+        
+        if not model_files:
+            print(f"No {model_prefix} model files found.")
+            exit(1)
+        
+        # Sort by episode number (assuming format dqn_agent_ep{num}.pt or dueling_dqn_agent_ep{num}.pt)
+        model_files.sort(key=lambda x: int(x.split('ep')[1].split('.')[0]), reverse=True)
+        model_path = os.path.join(saved_models_dir, model_files[0])
     
-    # Sort by episode number (assuming format dqn_agent_ep{num}.pt)
-    model_files.sort(key=lambda x: int(x.split('ep')[1].split('.')[0]), reverse=True)
-    latest_model = os.path.join(saved_models_dir, model_files[0])
+    print(f"Testing with model: {model_path}")
     
-    print(f"Testing with the latest model: {latest_model}")
-    
-    # Test on all stock files
+    # Get stock to test
     data_dir = "data"
-    stock_files = [os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith('.csv')]
+    if args.stock:
+        stock_file = os.path.join(data_dir, f"{args.stock}.csv")
+        if not os.path.exists(stock_file):
+            print(f"Stock file {stock_file} does not exist.")
+            exit(1)
+    else:
+        # Randomly select one stock file
+        stock_files = [os.path.join(data_dir, f) for f in os.listdir(data_dir) if f.endswith('.csv')]
+        stock_file = np.random.choice(stock_files)
     
-    # Randomly select one stock file
-    stock_file = np.random.choice(stock_files)
-    
-    test_agent(latest_model, stock_file, episodes=1) 
+    test_agent(model_path, stock_file, use_dueling_dqn=args.use_dueling_dqn, episodes=1) 
